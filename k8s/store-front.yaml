@@ -49,6 +49,7 @@ metadata:
   labels:
     app: store-front
 spec:
+  type: LoadBalancer
   selector:
     app: store-front
   ports:
