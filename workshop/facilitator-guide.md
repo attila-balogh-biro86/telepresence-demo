@@ -244,14 +244,274 @@ Stop `mvn spring-boot:run` with Ctrl+C.
 
 ---
 
-## Quick Reference
+## Telepresence Command Reference
+
+### Installation & Setup
+
+```bash
+# Install Telepresence on macOS
+brew install datawire/blackbird/telepresence-oss
+
+# Install Telepresence on Linux (amd64)
+sudo curl -fL https://app.getambassador.io/download/tel2oss/releases/download/v2.27.0/telepresence-linux-amd64 \
+  -o /usr/local/bin/telepresence && sudo chmod +x /usr/local/bin/telepresence
+
+# Verify installation
+telepresence version
+```
+
+### Starting the Daemon & Connecting
+
+```bash
+# Start Telepresence and connect to the current kubectl context
+telepresence connect
+
+# Connect in Docker mode (recommended for VPN/corporate networks)
+telepresence connect --docker
+
+# Connect to a specific namespace
+telepresence connect --namespace telepresence-demo
+
+# Check connection status
+telepresence status
+
+# Check the cluster-side traffic manager
+telepresence helm install              # install traffic manager
+telepresence helm upgrade              # upgrade traffic manager
+telepresence helm uninstall            # remove traffic manager
+```
+
+### Listing & Inspecting Services
+
+```bash
+# List all interceptable services in the connected namespace
+telepresence list
+
+# Access a cluster service directly from your laptop
+curl http://product-api.telepresence-demo/api/products
+
+# Full DNS also works
+curl http://product-api.telepresence-demo.svc.cluster.local/api/products
+```
+
+### Intercepting Services
+
+```bash
+# Intercept a service — route cluster traffic to your local port
+telepresence intercept store-front --port 8080:80
+
+# Intercept with environment variable export
+telepresence intercept store-front --port 8080:80 --env-file store-front.env
+
+# Intercept with Docker run (runs your local container with cluster networking)
+telepresence intercept store-front --port 8080:80 --docker-run -- -it myimage:latest
+
+# Check active intercepts
+telepresence list
+
+# Leave (stop) an intercept
+telepresence leave store-front
+```
+
+### Debugging & Logs
+
+```bash
+# Check Telepresence daemon status and connection details
+telepresence status
+
+# View Telepresence daemon logs
+telepresence gather-logs          # creates a zip file with all logs
+
+# Check traffic manager logs in the cluster
+kubectl logs deployment/traffic-manager -n telepresence-demo
+
+# Check traffic agent sidecar logs on an intercepted pod
+kubectl logs deployment/store-front -c traffic-agent -n telepresence-demo
+
+# Verify the traffic agent was injected into a pod
+kubectl describe pod -l app=store-front -n telepresence-demo | grep traffic-agent
+
+# Test DNS resolution (macOS — do NOT use dig, it bypasses Telepresence DNS)
+dscacheutil -q host -a name product-api.telepresence-demo
+
+# Test DNS resolution (Linux)
+curl -s http://product-api.telepresence-demo/api/products
+```
+
+### Disconnecting & Cleanup
+
+```bash
+# Stop all intercepts and disconnect
+telepresence quit
+
+# Force quit (if daemon is unresponsive)
+telepresence quit --force
+
+# Uninstall traffic agent from a workload
+telepresence uninstall store-front
+
+# Uninstall all traffic agents
+telepresence uninstall --all-agents
+```
+
+### Quick Reference Table
 
 | Command | What it does |
 |---------|-------------|
 | `telepresence connect --docker` | Connect to cluster (VPN-safe) |
+| `telepresence connect` | Connect to cluster (direct mode) |
 | `telepresence status` | Show connection status |
-| `curl http://svc.namespace/path` | Access cluster services |
+| `curl http://svc.namespace/path` | Access cluster services from laptop |
 | `telepresence intercept <svc> --port <local>:<remote>` | Route traffic to laptop |
-| `telepresence list -n <ns>` | Show available services |
-| `telepresence leave <svc>` | Stop intercepting |
+| `telepresence intercept <svc> --env-file .env` | Intercept and capture env vars |
+| `telepresence list` | Show available/intercepted services |
+| `telepresence leave <svc>` | Stop intercepting a service |
 | `telepresence quit` | Full disconnect |
+| `telepresence gather-logs` | Collect all logs for debugging |
+| `telepresence helm install` | Install traffic manager in cluster |
+
+---
+
+## Q&A: Common Technical Questions
+
+### General
+
+**Q: What exactly does Telepresence install in my cluster?**
+> It installs a **Traffic Manager** deployment in your namespace. When you intercept a service, it also injects a **traffic-agent** sidecar container into the target pod. The traffic-agent intercepts incoming traffic and routes it to your laptop via the Traffic Manager. When you leave the intercept, the sidecar is removed automatically.
+
+**Q: Does Telepresence modify my deployments permanently?**
+> No. The traffic-agent sidecar is injected dynamically and removed when you leave the intercept or run `telepresence uninstall`. Your original deployment YAML is not modified.
+
+**Q: Can I intercept multiple services at the same time?**
+> Yes. You can run multiple `telepresence intercept` commands for different services. Each will route to a different local port. This is useful when you're working on a service that depends on another service you also want to run locally.
+
+**Q: Does this work with any language/framework?**
+> Yes. Telepresence operates at the network level. It doesn't care what language or framework your service uses. If it listens on a TCP port, it can be intercepted.
+
+**Q: What is the `--docker` flag and when should I use it?**
+> `--docker` runs the Telepresence daemon inside a Docker container with its own network namespace. This completely isolates Telepresence networking from your host, preventing conflicts with VPNs, corporate proxies, or other network tools. Use it whenever you're on a corporate network or VPN.
+
+---
+
+### VPN & Corporate Network
+
+**Q: Our cluster is only accessible via VPN. Will Telepresence work?**
+> Yes, but you need to handle potential subnet conflicts. When your VPN and cluster use overlapping IP ranges (common with RFC 1918 addresses like 10.x.x.x), Telepresence may fail to route correctly. Three solutions:
+>
+> 1. **Docker mode (recommended):** `telepresence connect --docker` — isolates all Telepresence networking in a container, avoiding VPN conflicts entirely.
+> 2. **VNAT (automatic):** Telepresence 2.21+ automatically resolves conflicts by translating cluster IPs to non-conflicting virtual addresses. Use `telepresence connect --vnat all` to enable for all subnets.
+> 3. **Allow conflicting subnets:** If you understand your network topology, configure `allowConflictingSubnets` in `~/.config/telepresence/config.yml` to explicitly allow overlapping ranges.
+
+**Q: I connected but DNS resolution doesn't work. Services are unreachable.**
+> Common causes:
+> - **VPN intercepts DNS:** Your VPN may be capturing all DNS queries. Use `--docker` mode to isolate DNS.
+> - **Missing namespace in URL:** Without an active intercept, you must use fully qualified names: `service-name.namespace` (e.g., `product-api.telepresence-demo`), not just `product-api`.
+> - **macOS dig doesn't work:** On macOS, `dig` and `nslookup` bypass Telepresence DNS. Use `curl` or `dscacheutil -q host -a name <service>` instead.
+
+**Q: My VPN drops when I run `telepresence connect`. What do I do?**
+> This happens when Telepresence modifies your routing table in a way that conflicts with the VPN. Solutions:
+> - Use `telepresence connect --docker` to avoid modifying host routes entirely.
+> - If you can't use Docker mode, use `--proxy-via CIDR=WORKLOAD` to route specific subnets through a cluster workload instead of modifying host routes.
+
+**Q: Can I use Telepresence if the cluster API server is only reachable via VPN?**
+> Yes. Keep your VPN connected and ensure `kubectl` works first. Then run `telepresence connect --docker`. The Docker container will use your host's network (including VPN) to reach the API server, while keeping Telepresence's virtual network isolated.
+
+**Q: Does Telepresence work behind a corporate HTTP proxy?**
+> Telepresence uses gRPC and direct TCP connections to the cluster, not HTTP. Corporate HTTP proxies typically don't interfere because `kubectl` access (which must already work) handles the API server connection. If your proxy blocks non-HTTP traffic on certain ports, you may need proxy exceptions for the Telepresence port ranges.
+
+---
+
+### Developer Workflow Scenarios
+
+**Q: I changed my code but the intercept still shows the old version. Why?**
+> The intercept routes traffic to your local port — you need a local process running. Make sure:
+> 1. Your service is actually running locally (e.g., `mvn spring-boot:run`).
+> 2. It's listening on the correct port (the `--port` local port you specified).
+> 3. If using Spring DevTools or hot-reload, wait a few seconds for the reload to complete.
+> 4. Hard-refresh your browser (`Ctrl+Shift+R`) to bypass caching.
+
+**Q: My local service can't reach other services in the cluster.**
+> Check that `telepresence status` shows "Connected". Your local process should be able to reach cluster services via their Kubernetes DNS names (e.g., `http://product-api.telepresence-demo/api/products`). If DNS fails, try the full FQDN: `http://product-api.telepresence-demo.svc.cluster.local`.
+
+**Q: Can I debug my intercepted service with a debugger (IntelliJ, VS Code)?**
+> Absolutely — this is one of the biggest benefits. Start your service locally in debug mode:
+> - **IntelliJ:** Run your Spring Boot app with the Debug button.
+> - **VS Code:** Use your language's debug launch configuration.
+>
+> Set breakpoints, and when traffic from the cluster hits your intercepted service, the debugger will pause on them. You're debugging with real cluster traffic and dependencies.
+
+**Q: How do I get the environment variables and secrets that the pod has?**
+> Use the `--env-file` flag when intercepting:
+> ```bash
+> telepresence intercept store-front --port 8080:80 --env-file store-front.env
+> ```
+> This writes all pod environment variables to `store-front.env`. You can then source them:
+> ```bash
+> export $(cat store-front.env | xargs)
+> mvn spring-boot:run
+> ```
+> Or configure your IDE to load the env file.
+
+**Q: My intercept works but the app crashes because it can't find mounted volumes or ConfigMaps.**
+> Telepresence can mount remote volumes locally. By default it tries to mount them using `sshfs`. Ensure `sshfs` is installed:
+> - **macOS:** `brew install gromgit/fuse/sshfs-mac`
+> - **Linux:** `sudo apt install sshfs` and uncomment `user_allow_other` in `/etc/fuse.conf`
+>
+> If volume mounting isn't needed, disable it: `telepresence intercept store-front --port 8080:80 --mount=false`.
+
+**Q: Two developers want to work on the same service simultaneously. Is that possible?**
+> A standard intercept routes **all** traffic to one developer's laptop, which blocks others. Options:
+> - **Coordinate:** Only one developer intercepts at a time. Others work on different services.
+> - **Personal intercepts (header-based):** Route only requests with a specific HTTP header to your laptop. Other traffic continues to the cluster. This requires a paid Telepresence license.
+> - **Use separate namespaces:** Deploy the service to a personal namespace and intercept there.
+
+**Q: I accidentally left an intercept running. How do I clean up?**
+> ```bash
+> telepresence leave store-front     # leave specific intercept
+> telepresence quit                  # disconnect entirely
+> ```
+> If the daemon is stuck:
+> ```bash
+> telepresence quit --force
+> ```
+> If the traffic-agent sidecar is stuck in a pod:
+> ```bash
+> telepresence uninstall store-front
+> kubectl rollout restart deployment/store-front -n telepresence-demo
+> ```
+
+**Q: Will my intercept survive a VPN reconnection?**
+> Usually no. If your VPN drops and reconnects, the Telepresence connection often breaks. You'll need to:
+> ```bash
+> telepresence quit
+> telepresence connect --docker
+> telepresence intercept store-front --port 8080:80
+> ```
+> Your local service can keep running — you just need to re-establish the tunnel.
+
+**Q: Can I use Telepresence in CI/CD pipelines for integration testing?**
+> Yes, but with caveats. In CI environments (GitHub Actions, GitLab CI):
+> - DNS may require manual configuration. In Docker-based CI, replace `/etc/resolv.conf` contents with `nameserver 127.0.0.1`.
+> - Use `telepresence connect` (not `--docker`) since you're already in a container.
+> - Ensure the CI runner has `kubectl` access to the cluster.
+> - Clean up intercepts in your pipeline's teardown step.
+
+**Q: What happens to other users' traffic when I intercept a service?**
+> With a **global intercept** (the default), **all traffic** to that service routes to your laptop. Other team members hitting that service will see your local version. This is fine for development clusters but dangerous for shared/staging environments. Coordinate with your team, or use personal intercepts with header-based routing.
+
+**Q: I'm getting "traffic-manager not found" errors.**
+> The traffic manager needs to be installed in the cluster:
+> ```bash
+> telepresence helm install
+> ```
+> If it's already installed but in a different namespace, specify it:
+> ```bash
+> telepresence helm install --namespace telepresence-demo
+> ```
+> Verify it's running:
+> ```bash
+> kubectl get pods -n telepresence-demo | grep traffic-manager
+> ```
+
+**Q: My service uses gRPC/WebSockets, not HTTP. Does Telepresence support that?**
+> Yes. The default intercept mechanism is TCP-based, so it works with any protocol: HTTP, gRPC, WebSockets, raw TCP, etc. Protocol-specific features like header-based routing (personal intercepts) only work with HTTP/gRPC, but basic intercepts work with everything.
