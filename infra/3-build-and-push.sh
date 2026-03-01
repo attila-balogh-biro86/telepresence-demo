@@ -24,6 +24,7 @@ SERVICES=("store-front" "product-api" "order-api")
 for SERVICE in "${SERVICES[@]}"; do
     echo "--- Building $SERVICE ---"
     docker build \
+        --platform linux/amd64 \
         -t "${ACR_NAME}.azurecr.io/${SERVICE}:${TAG}" \
         "${PROJECT_DIR}/services/${SERVICE}"
 

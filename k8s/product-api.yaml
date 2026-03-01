@@ -32,7 +32,7 @@ spec:
               memory: 512Mi
           readinessProbe:
             httpGet:
-              path: /api/products
+              path: /actuator/health
               port: 8081
             initialDelaySeconds: 15
             periodSeconds: 10

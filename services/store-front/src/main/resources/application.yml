@@ -4,6 +4,12 @@ server:
 spring:
   application:
     name: store-front
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
   thymeleaf:
     cache: false
 
