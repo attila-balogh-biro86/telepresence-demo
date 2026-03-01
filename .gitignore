@@ -1,0 +1,7 @@
+CLAUDE.md
+.claude/
+target/
+*.jar
+.idea/
+*.iml
+.DS_Store

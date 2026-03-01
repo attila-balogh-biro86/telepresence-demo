@@ -9,7 +9,7 @@
 ## Pre-Workshop Checklist (do this 30 min before)
 
 - [ ] VPN connected, `kubectl get nodes` works
-- [ ] Run `infra/verify-prereqs.sh` — all green
+- [ ] Run `infra/1-verify-prereqs.sh` — all green
 - [ ] Demo app deployed: `kubectl get pods -n telepresence-demo` — all Running
 - [ ] `store-front` accessible via port-forward: `kubectl port-forward svc/store-front 9090:80 -n telepresence-demo` — open browser to `http://localhost:9090`, confirm product list loads
 - [ ] Stop the port-forward (you'll use Telepresence instead during the demo)
