@@ -1,0 +1,12 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: store-front
+  thymeleaf:
+    cache: false
+
+app:
+  product-api-url: ${PRODUCT_API_URL:http://product-api.telepresence-demo}
+  order-api-url: ${ORDER_API_URL:http://order-api.telepresence-demo}
