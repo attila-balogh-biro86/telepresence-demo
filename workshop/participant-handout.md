@@ -8,17 +8,52 @@ Telepresence connects your local dev machine to a remote Kubernetes cluster. You
 - **Intercept traffic** — route requests from a cluster service to your locally running code
 - **Skip the build-push-deploy loop** — edit code, see changes instantly
 
-## Install
+## Install Prerequisites
+
+### Azure CLI
 
 ```bash
-# macOS
-brew install datawire/blackbird/telepresence-oss
+brew install azure-cli
+az version
+```
 
-# Verify
+### kubectl
+
+```bash
+brew install kubernetes-cli
+kubectl version --client
+```
+
+### Telepresence Client
+
+```bash
+brew install datawire/blackbird/telepresence-oss
 telepresence version
 ```
 
-Also required: Docker Desktop (for `--docker` mode), kubectl, Java 17+, Maven.
+### Docker Desktop
+
+Download from [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/) and start the application.
+
+```bash
+docker info    # Verify daemon is running
+```
+
+### Java 17+ and Maven
+
+```bash
+brew install openjdk@17 maven
+java -version
+mvn -version
+```
+
+### Connect to AKS
+
+```bash
+az login
+az aks get-credentials --resource-group <RESOURCE_GROUP> --name <AKS_CLUSTER>
+kubectl get nodes   # Verify connectivity
+```
 
 ## Key Commands
 

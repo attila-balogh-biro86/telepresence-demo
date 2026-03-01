@@ -6,11 +6,24 @@
 
 ---
 
+## Prerequisites
+
+All infrastructure and tooling must be set up **before** the workshop. Follow the [Pre-Workshop Setup Guide](../infra/README.md) to complete these steps:
+
+1. **Azure infrastructure pre-provisioned:** Resource Group, AKS cluster, and ACR
+2. **Tools installed on facilitator machine:** Azure CLI, kubectl, Telepresence client, Docker Desktop, Java 17+, Maven, Helm
+3. **Connected to Azure and AKS:** `az login` done, kubeconfig merged
+4. **Service images built and pushed** to ACR
+5. **Telepresence traffic manager installed** into the AKS cluster
+6. **Demo services deployed** to the `telepresence-demo` namespace
+
+---
+
 ## Pre-Workshop Checklist (do this 30 min before)
 
 - [ ] VPN connected, `kubectl get nodes` works
 - [ ] Run `infra/1-verify-prereqs.sh` — all green
-- [ ] Demo app deployed: `kubectl get pods -n telepresence-demo` — all Running
+- [ ] Demo app deployed: `kubectl get pods -n telepresence-demo` — all Running (including `traffic-manager`)
 - [ ] `store-front` accessible via port-forward: `kubectl port-forward svc/store-front 9090:80 -n telepresence-demo` — open browser to `http://localhost:9090`, confirm product list loads
 - [ ] Stop the port-forward (you'll use Telepresence instead during the demo)
 - [ ] Terminal font size large enough for audience to read
