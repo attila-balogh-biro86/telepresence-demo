@@ -3,9 +3,11 @@ package com.example.productapi.controller;
 import com.example.productapi.model.Product;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/products")
@@ -22,5 +24,15 @@ public class ProductController {
     @GetMapping
     public List<Product> getAllProducts() {
         return products;
+    }
+
+    @GetMapping("/search")
+    public List<Product> searchProducts(@RequestParam(value = "q", required = false, defaultValue = "") String q) {
+        if (q.isEmpty()) {
+            return products;
+        }
+        return products.stream()
+                .filter(p -> p.getName().toLowerCase().contains(q.toLowerCase()))
+                .collect(Collectors.toList());
     }
 }

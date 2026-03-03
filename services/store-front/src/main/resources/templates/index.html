@@ -54,9 +54,21 @@
     <div class="banner">
         <h1>Product Store</h1>
         <p>Browse our selection of developer accessories</p>
+        <div style="margin-top: 1rem;">
+            <a href="/orders" style="color: white; text-decoration: underline; font-size: 0.95rem;">Order History</a>
+        </div>
     </div>
 
     <div class="container">
+        <form method="get" action="/search" style="margin-bottom: 1.5rem; display: flex; gap: 0.5rem;">
+            <input type="text" name="q" th:value="${searchQuery}" placeholder="Search products..." style="flex: 1; padding: 0.5rem 1rem; border: 1px solid #ddd; border-radius: 4px; font-size: 0.95rem;">
+            <button type="submit" class="btn">Search</button>
+        </form>
+
+        <div th:if="${searchQuery}" style="margin-bottom: 1rem;">
+            <span>Results for: <strong th:text="${searchQuery}"></strong></span>
+            <a href="/" style="margin-left: 0.5rem; color: #0078d4;">Clear search</a>
+        </div>
         <div th:if="${order}" class="alert alert-success">
             Order <strong th:text="${order.orderId}"></strong> confirmed!
             Total: $<span th:text="${#numbers.formatDecimal(order.total, 1, 2)}"></span>

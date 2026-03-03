@@ -49,6 +49,41 @@ public class StoreController {
         return "index";
     }
 
+    @GetMapping("/search")
+    public String search(@RequestParam String q, Model model) {
+        List<Product> products = List.of();
+        try {
+            products = restTemplate.exchange(
+                    productApiUrl + "/api/products/search?q=" + q,
+                    HttpMethod.GET,
+                    null,
+                    new ParameterizedTypeReference<List<Product>>() {}
+            ).getBody();
+        } catch (Exception e) {
+            model.addAttribute("error", "Could not search products: " + e.getMessage());
+        }
+        model.addAttribute("products", products);
+        model.addAttribute("searchQuery", q);
+        return "index";
+    }
+
+    @GetMapping("/orders")
+    public String orders(Model model) {
+        List<Order> orders = List.of();
+        try {
+            orders = restTemplate.exchange(
+                    orderApiUrl + "/api/orders",
+                    HttpMethod.GET,
+                    null,
+                    new ParameterizedTypeReference<List<Order>>() {}
+            ).getBody();
+        } catch (Exception e) {
+            model.addAttribute("error", "Could not load orders: " + e.getMessage());
+        }
+        model.addAttribute("orders", orders);
+        return "orders";
+    }
+
     @PostMapping("/order")
     public String placeOrder(@RequestParam Long productId,
                              @RequestParam String productName,
