@@ -14,5 +14,5 @@ management:
     cache: false
 
 app:
-  product-api-url: ${PRODUCT_API_URL:http://product-api.telepresence-demo}
-  order-api-url: ${ORDER_API_URL:http://order-api.telepresence-demo}
+  product-api-url: ${PRODUCT_API_URL:http://localhost:8081}
+  order-api-url: ${ORDER_API_URL:http://localhost:8082}

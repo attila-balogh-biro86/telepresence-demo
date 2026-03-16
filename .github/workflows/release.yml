@@ -1,0 +1,200 @@
+name: Release Service
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Service to release'
+        required: true
+        type: choice
+        options:
+          - product-api
+          - order-api
+          - store-front
+          - all
+      version:
+        description: 'Release version (e.g. 1.2.0)'
+        required: true
+        type: string
+      dry-run:
+        description: 'Dry run - build and test only, skip push/tag'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  ACR_NAME: ${{ vars.ACR_NAME }}
+  ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
+
+jobs:
+  validate:
+    name: Validate inputs
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.set-matrix.outputs.services }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate version format
+        run: |
+          if [[ ! "${{ inputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version must be semver format (e.g. 1.2.0)"
+            exit 1
+          fi
+
+      - name: Check tags don't already exist
+        run: |
+          if [ "${{ inputs.service }}" = "all" ]; then
+            services="product-api order-api store-front"
+          else
+            services="${{ inputs.service }}"
+          fi
+          for svc in $services; do
+            tag="${svc}-v${{ inputs.version }}"
+            if git rev-parse "$tag" >/dev/null 2>&1; then
+              echo "::error::Tag $tag already exists"
+              exit 1
+            fi
+          done
+
+      - name: Build service matrix
+        id: set-matrix
+        run: |
+          if [ "${{ inputs.service }}" = "all" ]; then
+            echo 'services=["product-api","order-api","store-front"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'services=["${{ inputs.service }}"]' >> "$GITHUB_OUTPUT"
+          fi
+
+  build-and-push:
+    name: Build ${{ matrix.service }}
+    needs: validate
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: ${{ fromJson(needs.validate.outputs.services) }}
+      fail-fast: false
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+          cache-dependency-path: services/${{ matrix.service }}/pom.xml
+
+      - name: Set version in POM
+        working-directory: services/${{ matrix.service }}
+        run: mvn versions:set -DnewVersion=${{ inputs.version }} -DgenerateBackupPoms=false
+
+      - name: Build and test
+        working-directory: services/${{ matrix.service }}
+        run: mvn clean verify
+
+      - name: Log in to Azure
+        if: ${{ !inputs.dry-run }}
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to ACR
+        if: ${{ !inputs.dry-run }}
+        run: az acr login --name ${{ vars.ACR_NAME }}
+
+      - name: Build and push Docker image
+        if: ${{ !inputs.dry-run }}
+        working-directory: services/${{ matrix.service }}
+        run: |
+          IMAGE="${{ vars.ACR_LOGIN_SERVER }}/${{ matrix.service }}"
+          docker build \
+            --platform linux/amd64 \
+            -t "${IMAGE}:${{ inputs.version }}" \
+            -t "${IMAGE}:latest" \
+            .
+          docker push "${IMAGE}:${{ inputs.version }}"
+          docker push "${IMAGE}:latest"
+
+      - name: Upload version artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.service }}
+          path: services/${{ matrix.service }}/pom.xml
+
+  finalize:
+    name: Commit, tag and release
+    needs: [validate, build-and-push]
+    if: ${{ !inputs.dry-run }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all version artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: false
+
+      - name: Apply POM version changes
+        run: |
+          for dir in release-*/; do
+            service=$(basename "$dir")
+            service="${service#release-}"
+            cp "${dir}pom.xml" "services/${service}/pom.xml"
+          done
+
+      - name: Update k8s manifests with versioned image tags
+        run: |
+          for svc in $(echo '${{ needs.validate.outputs.services }}' | jq -r '.[]'); do
+            file="k8s/${svc}.yaml"
+            if [ -f "$file" ]; then
+              sed -i "s|image:.*${svc}:.*|image: \${ACR_NAME}.azurecr.io/${svc}:${{ inputs.version }}|" "$file"
+            fi
+          done
+
+      - name: Commit and tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          SERVICES=$(echo '${{ needs.validate.outputs.services }}' | jq -r 'join(", ")')
+
+          git add services/*/pom.xml k8s/*.yaml
+          git commit -m "release: ${SERVICES} v${{ inputs.version }}"
+
+          for svc in $(echo '${{ needs.validate.outputs.services }}' | jq -r '.[]'); do
+            git tag "${svc}-v${{ inputs.version }}"
+          done
+
+          git push origin main --tags
+
+      - name: Create GitHub Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for svc in $(echo '${{ needs.validate.outputs.services }}' | jq -r '.[]'); do
+            tag="${svc}-v${{ inputs.version }}"
+            previous=$(git tag -l "${svc}-v*" --sort=-v:refname | sed -n '2p')
+            if [ -n "$previous" ]; then
+              gh release create "$tag" \
+                --title "${svc} v${{ inputs.version }}" \
+                --generate-notes \
+                --notes-start-tag "$previous"
+            else
+              gh release create "$tag" \
+                --title "${svc} v${{ inputs.version }}" \
+                --generate-notes
+            fi
+          done
